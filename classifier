@@ -1,0 +1,124 @@
+from msilib.schema import Class
+from typing import Text
+from sklearn.metrics import f1_score, accuracy_score
+import numpy as np
+
+from sklearn.feature_extraction.text import CountVectorizer
+from sklearn import preprocessing
+from sklearn.linear_model import LogisticRegression
+
+import csv
+import random
+import re
+
+
+def read_and_scramble_reviews(path):
+    rows = []
+    with open(path, 'r', encoding='utf-8') as file:
+        data = csv.reader(file)
+        header = next(data)
+        for row in data:
+            clean = clean_review(row[1])
+            rows.append(tuple((row[2], clean)))
+    random.shuffle(rows)
+    return rows
+
+
+def clean_review(review):
+    review = review.lower()
+
+    html = re.compile('<.*?>')
+    words = re.sub(html, '', review)
+
+    slash = re.compile('\\\w+')
+    no_slash = re.sub(slash, ' ', words)
+
+    cleaned_rev = re.sub('[(n\'t\b)(\'m\b)(\'s\b)(\'ve\b)(\'ll\b)(\'d\b)]', ' \1', no_slash)
+
+    return cleaned_rev
+
+
+def train_val(dataset):
+    train_data = dataset[:56151]
+    val_data = dataset[56151:]
+
+    return train_data, val_data
+
+
+class TextToFeatures:
+    def __init__(self):
+        self.vectorizer = CountVectorizer(analyzer='word',
+        ngram_range=(1,2), binary=True)
+    
+    def fit(self, training_texts):
+        self.vectorizer.fit_transform(training_texts)
+
+    def index(self, feature):
+        ind = self.vectorizer.vocabulary_.get(feature)
+        if ind is None:
+            return None
+        else:
+            return ind
+    
+    def transform(self, texts):
+        return self.vectorizer.transform(texts)
+
+
+class TextToLabels:
+    def __init__(self):
+        self.le = preprocessing.LabelEncoder()
+
+    def fit(self, training_labels):
+        self.le.fit_transform(training_labels)
+    
+    def index(self, label):
+        classes = list(self.le.classes_)
+        if label in classes:
+            return classes.index(label)
+        else:
+            return None
+
+    def transform(self, labels):
+        return self.le.transform(labels)
+
+    def __contains__(self, label):
+        return False if self.index(label) is None else True
+
+
+class Classifier:
+    def __init__(self):
+        self.lr = LogisticRegression(C=10, max_iter=1000)
+    
+    def train(self, features, labels):
+        self.lr.fit(features,labels)
+    
+    fit = train
+
+    def predict(self, features):
+        return self.lr.predict(features)
+
+
+path='C:/Users/nkrbr/OneDrive/Desktop/uazhlt-ling-539-sp-2022/train.csv'
+
+reviews = read_and_scramble_reviews(path)
+
+train, val = train_val(reviews)
+
+train_labels, train_review = zip(*train)
+val_labels, val_review = zip(*val)
+
+to_features = TextToFeatures()
+to_features.fit(train_review)
+to_labels = TextToLabels()
+to_labels.fit(train_labels)
+
+classif = Classifier()
+classif.train(to_features.transform(train_review), to_labels.transform(train_labels))
+
+predicted = classif.predict(to_features.transform(val_review))
+
+val_indices   = to_labels.transform(val_labels)
+f1            = f1_score(val_indices, predicted, average='weighted')
+accuracy      = accuracy_score(val_indices, predicted)
+
+print(f"\n{f1:.1%} F1 and {accuracy:.1%} accuracy on val data")
